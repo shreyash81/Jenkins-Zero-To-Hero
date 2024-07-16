@@ -9,16 +9,13 @@ pipeline {
     stage('Checkout') {
       steps {
         sh 'echo passed'
+        checkout scm
       }
     }
-    stage('Build') {
-      steps {
-        sh 'cd java-maven-sonar-argocd-helm-k8s/spring-boot-app && mvn clean package'
-      }
-    }
-    stage('Test') {
+    stage('Build and Test') {
       steps {
         sh 'ls -ltr'
+        sh 'cd java-maven-sonar-argocd-helm-k8s/spring-boot-app && mvn clean package'
       }
     }
     stage('Static Code Analysis') {
@@ -32,18 +29,9 @@ pipeline {
         REGISTRY_CREDENTIALS = credentials('docker-cred')
       }
       steps {
-        script {
-          try {
-            sh 'cd java-maven-sonar-argocd-helm-k8s/spring-boot-app && docker build -t ${DOCKER_IMAGE} .'
-            def dockerImage = docker.image("${DOCKER_IMAGE}")
-            docker.withRegistry('https://index.docker.io/v1/', "docker-cred") {
-              dockerImage.push()
-            }
-          } catch (e) {
-            echo "Error building and pushing Docker image: ${e}"
-            throw e
-          }
-        }
+        sh 'cd java-maven-sonar-argocd-helm-k8s/spring-boot-app && docker build -t ${DOCKER_IMAGE} .'
+        sh 'docker login -u $REGISTRY_CREDENTIALS_USR -p $REGISTRY_CREDENTIALS_PSW'
+        sh 'docker push ${DOCKER_IMAGE}'
       }
     }
     stage('Update Deployment File') {
@@ -53,20 +41,15 @@ pipeline {
       }
       steps {
         withCredentials([string(credentialsId: 'github', variable: 'GITHUB_TOKEN')]) {
-          try {
-            sh '''
-              git config user.email "abhishek.xyz@gmail.com"
-              git config user.name "Abhishek Veeramalla"
-              BUILD_NUMBER=${BUILD_NUMBER}
-              sed -i "s/replaceImageTag/${BUILD_NUMBER}/g" java-maven-sonar-argocd-helm-k8s/spring-boot-app-manifests/deployment.yml
-              git add java-maven-sonar-argocd-helm-k8s/spring-boot-app-manifests/deployment.yml
-              git commit -m "Update deployment image to version ${BUILD_NUMBER}"
-              git push https://${GITHUB_TOKEN}@github.com/${GIT_USER_NAME}/${GIT_REPO_NAME} HEAD:main
-            '''
-          } catch (e) {
-            echo "Error updating deployment file: ${e}"
-            throw e
-          }
+          sh '''
+            git config user.email "abhishek.xyz@gmail.com"
+            git config user.name "Abhishek Veeramalla"
+            BUILD_NUMBER=${BUILD_NUMBER}
+            sed -i "s/replaceImageTag/${BUILD_NUMBER}/g" java-maven-sonar-argocd-helm-k8s/spring-boot-app-manifests/deployment.yml
+            git add java-maven-sonar-argocd-helm-k8s/spring-boot-app-manifests/deployment.yml
+            git commit -m "Update deployment image to version ${BUILD_NUMBER}"
+            git push https://${GITHUB_TOKEN}@github.com/${GIT_USER_NAME}/${GIT_REPO_NAME} HEAD:main
+          '''
         }
       }
     }
